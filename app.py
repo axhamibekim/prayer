@@ -10,14 +10,14 @@ import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="Namaz Tracker (5 Vakte)", layout="centered")
 
-# Persist selected date across reruns
+# Persist selected date
 if "selected_date" not in st.session_state:
     st.session_state.selected_date = date.today()
 
 DATA_FILE = "prayer_log.csv"
 PRAYERS = ["Fajr (Sabah)", "Dhuhr (Dreka)", "Asr (Ikindia)", "Maghrib (Aksham)", "Isha (Jacia)"]
 
-# ------------------ GitHub helpers ------------------
+# ----------- GitHub helpers -----------
 def _gh_enabled():
     required = ["GITHUB_TOKEN", "GH_OWNER", "GH_REPO", "GH_BRANCH", "GH_CSV_PATH"]
     return all(k in st.secrets for k in required)
@@ -75,22 +75,19 @@ def github_upsert_csv(local_csv_bytes, commit_message="Update prayer_log.csv"):
     st.toast("✅ U ruajt në GitHub", icon="✅")
     return True
 
-# ------------------ Data helpers ------------------
+# ----------- Data helpers -----------
 def ensure_data_file():
     if not os.path.exists(DATA_FILE):
-        # If GitHub is configured, try pulling initial CSV
         if _gh_enabled():
             pulled = github_pull_csv_to_local()
             if pulled and os.path.exists(DATA_FILE):
                 return
-        # otherwise create empty CSV
         df = pd.DataFrame(columns=["date"] + PRAYERS)
         df.to_csv(DATA_FILE, index=False)
 
 def load_data():
     ensure_data_file()
     df = pd.read_csv(DATA_FILE)
-    # Normalize date to YYYY-MM-DD string
     if "date" in df.columns:
         df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date.astype(str)
     return df
@@ -105,9 +102,7 @@ def save_day(selected_date: date, marks: dict):
     else:
         df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
     df = df.sort_values("date")
-    # 1) local save
     df.to_csv(DATA_FILE, index=False)
-    # 2) GitHub save (if configured)
     if _gh_enabled():
         try:
             github_upsert_csv(df.to_csv(index=False).encode("utf-8"), commit_message=f"update {sdate}")
@@ -133,12 +128,9 @@ def compute_stats(df, window_days=30):
     days_tracked = window.shape[0]
     if days_tracked == 0:
         return {"days_tracked": 0, "avg_perc": 0.0, "best_streak": 0, "current_streak": 0}
-
     window["completed"] = window[PRAYERS].astype(int).sum(axis=1)
     window["perc"] = (window["completed"] / len(PRAYERS)) * 100.0
     avg_perc = float(window["perc"].mean())
-
-    # Streaks (only counting days with 5/5)
     days = sorted(window["date"].tolist())
     best_streak = 0
     current_streak = 0
@@ -161,131 +153,79 @@ def compute_stats(df, window_days=30):
         "current_streak": int(current_streak),
     }
 
-# ------------------ UI ------------------
-st.title("🕌 Namaz Tracker — 5 Vakte")
-st.caption("Shëno vaktet e ditës dhe shiko progresin për 30 ditë. Të dhënat ruhen lokalisht dhe mund të ruhen në GitHub nëse ke konfiguruar secrets.")
+# ----------- Sidebar nav -----------
+view = st.sidebar.radio("Zgjidh faqen", ["🕌 Namaz Tracker", "📊 Raport Mujor"])
 
-df = load_data()
+# ----------- Page 1: Namaz Tracker -----------
+if view == "🕌 Namaz Tracker":
+    st.title("🕌 Namaz Tracker — 5 Vakte")
+    st.caption("Shëno vaktet e ditës dhe shiko progresin për 30 ditë.")
 
-col_date, col_tools = st.columns([2, 1])
-with col_date:
-    selected_date = st.date_input("Data", value=st.session_state.selected_date, format="YYYY-MM-DD")
-    st.session_state.selected_date = selected_date
-with col_tools:
-    st.write("")
-    st.write("")
-    if st.button("Shko në sot"):
-        st.session_state.selected_date = date.today()
-        selected_date = st.session_state.selected_date
+    df = load_data()
+    col_date, col_tools = st.columns([2, 1])
+    with col_date:
+        selected_date = st.date_input("Data", value=st.session_state.selected_date, format="YYYY-MM-DD")
+        st.session_state.selected_date = selected_date
+    with col_tools:
+        st.write("")
+        st.write("")
+        if st.button("Shko në sot"):
+            st.session_state.selected_date = date.today()
+            selected_date = st.session_state.selected_date
 
-marks_today = get_marks_for_date(df, selected_date)
+    marks_today = get_marks_for_date(df, selected_date)
 
-st.subheader("Vaktet e ditës")
-c1, c2 = st.columns(2)
-with c1:
-    fajr = st.checkbox("Fajr (Sabah)", value=marks_today["Fajr (Sabah)"])
-    dhuhr = st.checkbox("Dhuhr (Dreka)", value=marks_today["Dhuhr (Dreka)"])
-    asr = st.checkbox("Asr (Ikindia)", value=marks_today["Asr (Ikindia)"])
-with c2:
-    maghrib = st.checkbox("Maghrib (Aksham)", value=marks_today["Maghrib (Aksham)"])
-    isha = st.checkbox("Isha (Jacia)", value=marks_today["Isha (Jacia)"])
+    st.subheader("Vaktet e ditës")
+    c1, c2 = st.columns(2)
+    with c1:
+        fajr = st.checkbox("Fajr (Sabah)", value=marks_today["Fajr (Sabah)"])
+        dhuhr = st.checkbox("Dhuhr (Dreka)", value=marks_today["Dhuhr (Dreka)"])
+        asr = st.checkbox("Asr (Ikindia)", value=marks_today["Asr (Ikindia)"])
+    with c2:
+        maghrib = st.checkbox("Maghrib (Aksham)", value=marks_today["Maghrib (Aksham)"])
+        isha = st.checkbox("Isha (Jacia)", value=marks_today["Isha (Jacia)"])
 
-colA, colB, colC = st.columns(3)
-with colA:
-    if st.button("✅ Shëno ditën"):
-        updated = {"Fajr (Sabah)": fajr, "Dhuhr (Dreka)": dhuhr, "Asr (Ikindia)": asr, "Maghrib (Aksham)": maghrib, "Isha (Jacia)": isha}
-        df = save_day(selected_date, updated)
-        st.success("U ruajt me sukses.")
-with colB:
-    if st.button("✓ Shëno të gjitha"):
-        updated = {p: True for p in PRAYERS}
-        df = save_day(selected_date, updated)
-        st.success("U shënuan të gjitha ✓ për këtë ditë.")
-with colC:
-    if st.button("🧹 Pastro ditën"):
-        updated = {p: False for p in PRAYERS}
-        df = save_day(selected_date, updated)
-        st.info("U hoqën shënimet për këtë ditë.")
+    colA, colB, colC = st.columns(3)
+    with colA:
+        if st.button("✅ Shëno ditën"):
+            updated = {"Fajr (Sabah)": fajr, "Dhuhr (Dreka)": dhuhr, "Asr (Ikindia)": asr, "Maghrib (Aksham)": maghrib, "Isha (Jacia)": isha}
+            df = save_day(selected_date, updated)
+            st.success("U ruajt me sukses.")
+    with colB:
+        if st.button("✓ Shëno të gjitha"):
+            updated = {p: True for p in PRAYERS}
+            df = save_day(selected_date, updated)
+            st.success("U shënuan të gjitha ✓.")
+    with colC:
+        if st.button("🧹 Pastro ditën"):
+            updated = {p: False for p in PRAYERS}
+            df = save_day(selected_date, updated)
+            st.info("U hoqën shënimet.")
 
-st.divider()
-
-# ---------- Analytics ----------
-st.subheader("Analiza 30-ditore")
-
-def last_30_grid(df):
-    today = date.today()
-    start = today - timedelta(days=29)
-    day_list = pd.date_range(start=start, end=today, freq="D")
-    base = pd.DataFrame({"date": day_list})
+# ----------- Page 2: Raport Mujor -----------
+elif view == "📊 Raport Mujor":
+    st.title("📊 Raport Mujor")
+    df = load_data()
     if df.empty:
-        base["completed"] = 0
-        base["perc"] = 0.0
-        return base
-    d = df.copy()
-    d["date"] = pd.to_datetime(d["date"])
-    d = d[(d["date"] >= pd.to_datetime(start)) & (d["date"] <= pd.to_datetime(today))]
-    if d.empty:
-        base["completed"] = 0
-        base["perc"] = 0.0
-        return base
-    d["completed"] = d[PRAYERS].astype(int).sum(axis=1)
-    d["perc"] = (d["completed"] / len(PRAYERS)) * 100.0
-    merged = base.merge(d[["date", "completed", "perc"]], on="date", how="left").fillna({"completed": 0, "perc": 0.0})
-    return merged
-
-grid = last_30_grid(df)
-
-stats = compute_stats(df, window_days=30)
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Ditë të regjistruara", stats["days_tracked"])
-c2.metric("Mesatarja /ditë", f"{stats['avg_perc']}%")
-c3.metric("Streak më i gjatë (5/5)", stats["best_streak"])
-c4.metric("Streak aktual (5/5)", stats["current_streak"])
-
-# Plot (matplotlib, one plot, no explicit colors)
-fig, ax = plt.subplots()
-x = list(range(len(grid)))
-labels = pd.to_datetime(grid["date"]).dt.strftime("%d-%m").tolist()
-ax.bar(x, grid["perc"])
-ax.set_ylim(0, 100)
-ax.set_ylabel("Përqindje e plotësimit (0–100)")
-ax.set_title("Përparimi i fundit (30 ditë)")
-ax.set_xticks(x)
-ax.set_xticklabels(labels, rotation=60)
-st.pyplot(fig)
-
-st.divider()
-st.subheader("Të dhënat bruto")
-st.dataframe(df.sort_values("date"), use_container_width=True)
-
-# Sidebar: export/download + GitHub sync
-with st.sidebar:
-    st.header("Opsione")
-    if os.path.exists(DATA_FILE):
-        data_bytes = open(DATA_FILE, "rb").read()
+        st.info("Nuk ka të dhëna për raport.")
     else:
-        header = "date," + ",".join(PRAYERS) + "\n"
-        data_bytes = header.encode("utf-8")
-    st.download_button(
-        label="⬇️ Shkarko CSV",
-        data=data_bytes,
-        file_name="prayer_log.csv",
-        mime="text/csv",
-    )
-    if _gh_enabled():
-        st.success("GitHub: konfigurimi OK.")
-        if st.button("⬆️ Push në GitHub (manual)"):
-            try:
-                ok = github_upsert_csv(data_bytes, commit_message="manual push")
-                if ok:
-                    st.success("U dërgua në GitHub.")
-            except Exception as e:
-                st.warning(f"GitHub error: {e}")
-        if st.button("⬇️ Sync nga GitHub → lokal"):
-            ok = github_pull_csv_to_local()
-            if ok:
-                st.success("U shkarkua nga GitHub dhe u ruajt lokalisht.")
-            else:
-                st.warning("S'u gjet CSV në GitHub ose ndodhi një gabim.")
-    else:
-        st.info("GitHub nuk është konfiguruar. Vendos secrets te Streamlit: GITHUB_TOKEN, GH_OWNER, GH_REPO, GH_BRANCH, GH_CSV_PATH.")
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        last_30 = df[df["date"] >= (date.today() - timedelta(days=29))].copy()
+        last_30["completed"] = last_30[PRAYERS].astype(int).sum(axis=1)
+        last_30["perc"] = (last_30["completed"] / len(PRAYERS)) * 100.0
+
+        avg_perc = round(last_30["perc"].mean(), 1)
+        full_days = int((last_30["completed"] == len(PRAYERS)).sum())
+
+        c1, c2 = st.columns(2)
+        c1.metric("Mesatarja mujore", f"{avg_perc}%")
+        c2.metric("Ditë me 5/5 vakte", full_days)
+
+        fig, ax = plt.subplots()
+        ax.plot(last_30["date"], last_30["perc"], marker="o")
+        ax.set_ylim(0, 100)
+        ax.set_ylabel("Përqindje ditore")
+        ax.set_title("Progresi 30-ditor")
+        st.pyplot(fig)
+
+        st.dataframe(last_30.sort_values("date", ascending=False), use_container_width=True)
