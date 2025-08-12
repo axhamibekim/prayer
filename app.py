@@ -210,6 +210,7 @@ elif view == "📊 Raport Mujor":
         st.info("Nuk ka të dhëna për raport.")
     else:
         df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
         last_30 = df[df["date"] >= (date.today() - timedelta(days=29))].copy()
         last_30["completed"] = last_30[PRAYERS].astype(int).sum(axis=1)
         last_30["perc"] = (last_30["completed"] / len(PRAYERS)) * 100.0
